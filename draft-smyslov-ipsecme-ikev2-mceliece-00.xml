@@ -39,36 +39,118 @@
         <date/>
 
         <abstract>
-            <t> This document specifies how Classic McEliece Key Encapsulation Mechanism (KEM) is used in IKEv2.
-            </t>
+            <t> This document specifies how Classic McEliece Key Encapsulation Mechanism (KEM) is used to
+              generate keys in the Internet Key Exchange version 2 (IKEv2) protocol.</t>
         </abstract>
     </front>
 
     <middle>
         <section title="Introduction">
-        </section>
+          <t> IKEv2 (<xref target="RFC7296"/>) is a protocol for authentication and for generating keys 
+            for IPsec (<xref target="RFC4301"/>). Part of it is generating keys. Classic McEliece (<xref 
+            target="I-D.josefsson-mceliece"/>) provides a code-based Key Encapsulation Method (KEM) designed 
+            to be safe even against an adversary equipped with a quantum computer.  The twelve parameter  
+            sets described in section 9 of <xref target="I-D.josefsson-mceliece"/> offers different balances
+            between performance and output sizes.</t>
+          <t> As usual in IKEv2, the public keys are carried in Key Exchange (KE) payloads. With a typical 
+            parameter set from the draft, mceliece6688128, such a public key requires (see section 8.2.7 of 
+            the McEliece document) 1044992 octets to encode. This is almost 16 times as big as a standard KE 
+            payload (or any other payload) can carry, so we need to use a big payload, as specified in the 
+            big payload draft (<xref target="I-D.nir-ipsecme-big-payload"/>).</t>
+          <t> Because large payloads cannot be used (see section 2.3 of the big payload document) in the
+            IKE_SA_INIT exchange, The first key exchange has to use another algorithm, such as classic Diffie-
+            Hellman or an elliptic curve variant.  The McEliece exchange needs to be carried in an 
+            IKE_INTERMEDIATE exchange (<xref target="RFC9242"/>), after negotiating in the IKE_SA_INIT both
+            support for big payloads and the additional key exchange exchange through the 
+            INTERMEDIATE_EXCHANGE_SUPPORTED notify message (<xref target="RFC9370"/>). The Classic Mceliece
+            KEM can also be used in CREATE_CHILD_SA. For that, support for the intermediate exchange is not
+            necessary.</t>
+          <t> TBD if this document should make any recommendations about which DH group to use for the 
+            initial key exchange, or whether it should remain silent on the topic.</t>
 
         <section anchor="mustshouldmay" title="Terminology and Notation">
             <t> The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", 
             "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted 
             as described in BCP 14 <xref target="RFC2119" /> <xref target="RFC8174" /> when, and only when, 
-            they appear in all capitals, as shown here.
-            </t>
-
+            they appear in all capitals, as shown here.</t>
             <t> It is assumed that readers are familiar with the IKEv2 protocol <xref target="RFC7296" />.
             </t>
         </section>
+        </section>
 
         <section anchor="mceliece" title="Classic McEliece KEM">
+          <t> The <xref target="I-D.josefsson-mceliece"/> document specifies 12 parameter sets. Should we
+            just leave it at that, or specify just one? The current SSH candidate draft specifies only
+            mceliece6688128. The current TLS candidate draft specifies 3: mceliece6688128, mceliece6960119,
+            and mceliece8192128. What should we do?</t>
+          <t> This is up to the working group, but until this is decided, perhaps we should add a table here 
+            a comparison table between the parameter sets. Ultimately, there is nothing special about IKEv2. 
+            What is fitting for TLS and SSH is likely fitting for IKEv2 as well.</t>
         </section>
 
         <section anchor="mceliece-ikev2" title="Using Classic McEliece in IKEv2">
+          <t> To negotiate the use of the McEliece KEM, an IKEv2 initiator and responder MUST negotiate
+            three things in the IKE_SA_INIT exchange:</t>
+          <ul>
+            <li> The support for big IKE payloads (<xref target="I-D.nir-ipsecme-big-payload"/>) </li>
+            <li> Support for message fragmentation (<xref target="RFC7383"/>) </li>
+            <li> The use of these groups, see <xref target="iana"/>, as ADDKE. This implies support for
+              the IKE_INTERMEDIATE exchange.</li>
+          </ul>
+          <t> Since all of the above have to be specified in the IKE_SA_INIT request, the McEliece key
+            exchange, a Responder MUST reject any McEliece group offered in an ADDKE payload if it does
+            not support both big IKE payloads and fragmentation. Additionally, it MUST reject any McEliece
+            group offered in an ADDKE payload if the initiator has not negotiated the support for both big
+            payloads and for fragmentation.</t>
+          <t> Within the IKE_INTERMEDIATE exchange, such payloads will normally encode the large public
+            keys. A diagram is provided here for illustration:. The format below is the big payload version
+            of the Key Exchange from section 3.4 of <xref target="RFC7296"/>.</t>
+         <figure> 
+            <artwork><![CDATA[
+                        1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   | Next Payload  |C|L| RESERVED  |         Payload Length        
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      length continued...          |   Diffie-Hellman Group Num    | 
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+   
+   |           RESERVED            | McEliece KEM key data         |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               +
+   |                                                               |
+   ~                   KEM key data continues...                   ~
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+           ]]></artwork>
+          </figure>
+          <ul>
+            <li> L is 1, indicating that the length field is 32-bit.</li>
+            <li> The Diffie-Hellman Group Num is TBD, the value assigned by IANA (see 
+              <xref target="iana"/>)</li>
+            <li> The McEliece KEM key data is as described in section 6.3 of <xref 
+              target="I-D.josefsson-mceliece"/>. </li>
+          </ul>
+          <t> An IKE exchange that uses big payloads can run over UDP. It MAY also work over TCP 
+            (<xref target="RFC9329"/>) or over separate transports 
+            (<xref target="I-D.smyslov-ipsecme-ikev2-reliable-transport"/>) if available.</t>
+          <section anchor="child_sa" title="Using Classic McEliece for Child SAs">
+            <t> The Classic McEliece KEM can also be used in the CREATE_CHILD_SA exchange to create
+              IKE and IPsec SAs. That format and size are just the sane, so doing this also requires
+              support for big payloads and for IKE fragmentation.</t>
+          </section>  
         </section>
 
         <section anchor="security" title="Security Considerations">
+          <t> This inherits the security of IKEv2, the additional key exchange extension, the big
+            payload extension, and of course, classic McEliece.</t>
+          <t> Some discussion about choice of group for the initial key exchange should be added here.</t>
+          <t> Probably more about McEliece here.</t>
         </section>
 
         <section anchor="iana" title="IANA Considerations">
+          <t> IANA is requested to assign one (or is it three) values from the "Transform Type 4 - Key 
+            Exchange Method Transform IDs" registry with name "mceliece6688128" (and maybe also 
+            "mceliece6960119" and "mceliece8192128") and this document as reference.</t>
         </section>
 
         <section anchor="ack" title="Acknowledgements">
@@ -90,6 +172,7 @@
 
         <references title='Informative References'>
             <?rfc include="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9329.xml" ?>
+            <?rfc include="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4301.xml" ?>
             <?rfc include="https://xml2rfc.tools.ietf.org/public/rfc/bibxml3/reference.I-D.smyslov-ipsecme-ikev2-reliable-transport.xml"?>
         </references>
     </back>
